@@ -1,0 +1,281 @@
+<div class="app-container">
+  <!-- Top Navigation & Summary -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="logo-orb"></div>
+      <div>
+        <h1>Saga Orchestrator</h1>
+        <p class="subtitle">Distributed Transactions Control Center</p>
+      </div>
+    </div>
+
+    <!-- CSV Processing Status & Trigger -->
+    <div class="header-actions">
+      @if (streamStats(); as stats) {
+        @if (stats.status === 'PROCESSING') {
+          <div class="stream-progress-card">
+            <div class="progress-info">
+              <span class="pulse-dot"></span>
+              <span class="progress-text">Streaming CSV: {{ stats.processedRows + stats.failedRows + stats.skippedRows }} / {{ stats.totalRows }}</span>
+            </div>
+            <div class="progress-bar-container">
+              <div class="progress-bar-fill" [style.width.%]="stats.totalRows > 0 ? ((stats.processedRows + stats.failedRows + stats.skippedRows) / stats.totalRows) * 100 : 0"></div>
+            </div>
+            <div class="stats-mini-grid">
+              <span class="text-success">✔ {{ stats.processedRows }}</span>
+              <span class="text-danger">✖ {{ stats.failedRows }}</span>
+              <span class="text-muted">➡ {{ stats.skippedRows }}</span>
+            </div>
+          </div>
+        } @else {
+          <button class="btn btn-primary" (click)="triggerStream()" [disabled]="loading()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-play-fill" viewBox="0 0 16 16">
+              <path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+            </svg>
+            Trigger CSV Stream
+          </button>
+        }
+      }
+    </div>
+  </header>
+
+  <!-- Global Alerts -->
+  @if (errorMsg()) {
+    <div class="alert alert-danger">
+      <span>{{ errorMsg() }}</span>
+      <button class="alert-close" (click)="clearAlerts()">&times;</button>
+    </div>
+  }
+  @if (successMsg()) {
+    <div class="alert alert-success">
+      <span>{{ successMsg() }}</span>
+      <button class="alert-close" (click)="clearAlerts()">&times;</button>
+    </div>
+  }
+
+  <!-- Main View Grid -->
+  <main class="app-main">
+    
+    <!-- Left Section: Dashboard Content -->
+    <div class="dashboard-content">
+      
+      <!-- Stats Summary cards -->
+      <section class="stats-row">
+        <div class="stat-card">
+          <h3>Total Orders</h3>
+          <p class="stat-value">{{ totalOrders() }}</p>
+        </div>
+        <div class="stat-card">
+          <h3>Inventory SKUs</h3>
+          <p class="stat-value">{{ inventory().length }}</p>
+        </div>
+        @if (streamStats(); as stats) {
+          <div class="stat-card">
+            <h3>Failures / Cancellations</h3>
+            <p class="stat-value text-danger">{{ stats.failedRows }}</p>
+          </div>
+        }
+      </section>
+
+      <!-- Orders Panel -->
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Order Transaction Log</h2>
+          
+          <!-- Filters -->
+          <div class="filter-group">
+            <input type="text" class="form-control search-input" placeholder="Search by Order ID..." 
+                   [ngModel]="search()" (ngModelChange)="search.set($event); onFilterChange()" />
+            
+            <select class="form-control select-input" [ngModel]="statusFilter()" (ngModelChange)="statusFilter.set($event); onFilterChange()">
+              <option value="">All Statuses</option>
+              <option value="IN_PROGRESS">In Progress</option>
+              <option value="PLACED">Placed</option>
+              <option value="SHIPPED">Shipped</option>
+              <option value="CANCELLED">Cancelled</option>
+              <option value="NEEDS_ATTENTION">Needs Attention</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Orders Table -->
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Order ID</th>
+                <th>Status</th>
+                <th>Retries</th>
+                <th>Created At</th>
+                <th>Last Update</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (order of orders(); track order.order_id) {
+                <tr [class.selected-row]="selectedOrder()?.order_id === order.order_id" (click)="selectOrder(order)">
+                  <td class="order-id-cell">{{ order.order_id }}</td>
+                  <td>
+                    <span class="badge" [ngClass]="{
+                      'badge-info': order.status === 'IN_PROGRESS',
+                      'badge-success': order.status === 'PLACED',
+                      'badge-primary': order.status === 'SHIPPED',
+                      'badge-danger': order.status === 'CANCELLED',
+                      'badge-warning': order.status === 'NEEDS_ATTENTION'
+                    }">
+                      {{ order.status | titlecase }}
+                    </span>
+                  </td>
+                  <td>{{ order.retry_count }}</td>
+                  <td>{{ order.created_at | date:'mediumTime' }}</td>
+                  <td>{{ order.updated_at | date:'mediumTime' }}</td>
+                  <td>
+                    <div class="action-cell">
+                      @if (order.status === 'NEEDS_ATTENTION') {
+                        <button class="btn btn-sm btn-warning" (click)="retryOrder(order.order_id); $event.stopPropagation()">
+                          Retry Undo
+                        </button>
+                      } @else {
+                        <span class="text-muted">—</span>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6" class="text-center py-5">No orders found. Click "Trigger CSV Stream" to load orders.</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Paging Controls -->
+        @if (totalPages() > 1) {
+          <footer class="panel-footer">
+            <div class="pagination-info">
+              Showing page {{ page() }} of {{ totalPages() }} ({{ totalOrders() }} total items)
+            </div>
+            <div class="pagination-buttons">
+              <button class="btn btn-icon" (click)="prevPage()" [disabled]="page() === 1">
+                &laquo; Prev
+              </button>
+              <button class="btn btn-icon" (click)="nextPage()" [disabled]="page() === totalPages()">
+                Next &raquo;
+              </button>
+            </div>
+          </footer>
+        }
+      </section>
+    </div>
+
+    <!-- Backdrop Overlay on left area when drawer is open -->
+    @if (selectedOrder()) {
+      <div class="drawer-backdrop" (click)="closeDrawer()"></div>
+    }
+
+    <!-- Right Section: Details Side-Drawer / Info Panel -->
+    <div class="detail-drawer" [class.drawer-open]="selectedOrder()">
+      @if (selectedOrder(); as order) {
+        <div class="drawer-header">
+          <div>
+            <h3>Order Details</h3>
+            <p class="text-muted">{{ order.order_id }}</p>
+          </div>
+          <button class="btn-close" (click)="closeDrawer()">&times;</button>
+        </div>
+
+        <div class="drawer-body">
+          <!-- Order summary -->
+          <div class="card summary-card">
+            <div class="summary-row">
+              <span>Status</span>
+              <span class="badge" [ngClass]="{
+                'badge-info': order.status === 'IN_PROGRESS',
+                'badge-success': order.status === 'PLACED',
+                'badge-primary': order.status === 'SHIPPED',
+                'badge-danger': order.status === 'CANCELLED',
+                'badge-warning': order.status === 'NEEDS_ATTENTION'
+              }">
+                {{ order.status | titlecase }}
+              </span>
+            </div>
+            <div class="summary-row">
+              <span>Total Retries</span>
+              <span>{{ order.retry_count }}</span>
+            </div>
+            @if (order.status === 'NEEDS_ATTENTION') {
+              <div class="summary-action">
+                <button class="btn btn-warning w-100" (click)="retryOrder(order.order_id)">
+                  Retry Compensation
+                </button>
+              </div>
+            }
+          </div>
+
+          <!-- Transaction steps tracing logs -->
+          <div class="timeline-container">
+            <h4>Execution Trace</h4>
+            
+            <div class="timeline">
+              @for (log of selectedOrderLogs(); track log.id) {
+                <div class="timeline-item" [ngClass]="{
+                  'timeline-success': log.status === 'SUCCESS',
+                  'timeline-error': log.status === 'FAILED' || log.status === 'TIMEOUT',
+                  'timeline-undo': log.action === 'UNDO'
+                }">
+                  <div class="timeline-badge"></div>
+                  <div class="timeline-panel">
+                    <div class="timeline-heading">
+                      <span class="timeline-title">
+                        {{ log.step }} ({{ log.action }})
+                      </span>
+                      <span class="timeline-time">{{ log.timestamp | date:'mediumTime' }}</span>
+                    </div>
+                    <div class="timeline-body">
+                      <p>
+                        Status: <strong class="uppercase">{{ log.status }}</strong> (Attempt {{ log.attempt }})
+                      </p>
+                      @if (log.error_message) {
+                        <p class="timeline-error-text">{{ log.error_message }}</p>
+                      }
+                    </div>
+                  </div>
+                </div>
+              } @empty {
+                <div class="text-center py-4 text-muted">No logs recorded for this order yet.</div>
+              }
+            </div>
+          </div>
+        </div>
+      } @else {
+        <div class="drawer-placeholder">
+          <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-info-circle text-muted mb-3" viewBox="0 0 16 16">
+            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533L8.93 6.588zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/>
+          </svg>
+          <p>Select an order from the list to view its complete Saga execution trace logs.</p>
+        </div>
+      }
+    </div>
+  </main>
+
+  <!-- Bottom Panel: Inventory Live Stock -->
+  <footer class="app-footer">
+    <div class="inventory-status-bar">
+      <h4>Live Inventory Stock</h4>
+      <div class="inventory-scroll-container">
+        <div class="inventory-items-row">
+          @for (item of inventory(); track item.sku) {
+            <div class="inventory-chip">
+              <span class="chip-sku">{{ item.sku }}</span>
+              <span class="chip-qty" [ngClass]="{'qty-low': item.available_qty < 1000}">
+                {{ item.available_qty }}
+              </span>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  </footer>
+</div>
